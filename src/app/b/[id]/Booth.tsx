@@ -9,6 +9,7 @@ import {
   type Photo,
   type Slot,
 } from '@/lib/composite'
+import { createZip } from '@/lib/zip'
 import {
   AlertIcon,
   ArrowLeftIcon,
@@ -71,10 +72,13 @@ export default function Booth({
   const [error, setError] = useState('')
   const [resetIn, setResetIn] = useState(RESET_SECONDS)
 
-  // Scan-to-download: a public URL for the finished strip (via Vercel Blob)
-  // plus its QR code. Optional — stays empty if BLOB_READ_WRITE_TOKEN isn't set.
+  // Scan-to-download: strip + every raw photo bundled into one .zip, saved
+  // server-side so it has a real URL a phone can scan and fetch, plus its QR
+  // code. `zipBlobUrl` is the same zip's local object URL — works instantly,
+  // no network needed, so it's the target for the plain "Download" link.
   const [downloadUrl, setDownloadUrl] = useState('')
   const [qrSrc, setQrSrc] = useState('')
+  const [zipBlobUrl, setZipBlobUrl] = useState('')
   // Native share sheet (AirDrop on iOS, Nearby Share on Android, etc.) — only
   // some browsers can share actual files, so this is feature-detected rather
   // than assumed. Falls back to the plain download link where unsupported.
@@ -244,6 +248,17 @@ export default function Booth({
     [hasFrame, id, frameW, frameH, slots]
   )
 
+  /** Every captured photo at full resolution, as PNG bytes — shared by send, share, and the zip bundle. */
+  const rawPhotoBlobs = useCallback(async (): Promise<Blob[]> => {
+    const blobs: Blob[] = []
+    for (const shot of shotsRef.current) {
+      if (!shot) continue
+      const raw = await canvasToBlob(shot.photo.source as HTMLCanvasElement)
+      blobs.push(raw)
+    }
+    return blobs
+  }, [])
+
   /** Shoots the given slots in order: one index for a single retake, all for a full run. */
   async function runCapture(indices: number[]) {
     if (!(await ensureCamera())) return
@@ -387,6 +402,8 @@ export default function Booth({
     setResetIn(RESET_SECONDS)
     setDownloadUrl('')
     setQrSrc('')
+    if (zipBlobUrl) URL.revokeObjectURL(zipBlobUrl)
+    setZipBlobUrl('')
     setCanShareFiles(false)
     cancelReposition()
     setStage('attract')
@@ -403,13 +420,8 @@ export default function Booth({
     body.append('email', email)
     body.append('image', blobRef.current, 'photostrip.png')
     // The strip plus every raw photo — the server attaches each one separately.
-    for (const shot of shotsRef.current) {
-      if (!shot) continue
-      const source = shot.photo.source as HTMLCanvasElement
-      const raw = await new Promise<Blob | null>((resolve) =>
-        source.toBlob(resolve, 'image/png')
-      )
-      if (raw) body.append('photo', raw, 'photo.png')
+    for (const raw of await rawPhotoBlobs()) {
+      body.append('photo', raw, 'photo.png')
     }
 
     try {
@@ -440,56 +452,89 @@ export default function Booth({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, resetIn])
 
-  // Uploads the finished strip so it has a real URL a phone can scan and fetch —
-  // a blob: URL only exists inside this one browser tab, so it can't be shared.
+  /** The strip plus every raw photo, named to match what the email attaches. */
+  const bundleParts = useCallback(async (): Promise<{ name: string; blob: Blob }[]> => {
+    if (!blobRef.current) return []
+    const parts = [{ name: 'photostrip.png', blob: blobRef.current }]
+    const raws = await rawPhotoBlobs()
+    raws.forEach((blob, i) => parts.push({ name: `photo-${i + 1}.png`, blob }))
+    return parts
+  }, [rawPhotoBlobs])
+
+  // Bundles the strip + every raw photo into one .zip — a blob: URL only
+  // exists inside this one browser tab, so it can't be shared, and a plain
+  // link can only point at one file, hence the zip. `zipBlobUrl` works
+  // instantly offline; the upload to /api/strip additionally gets a public
+  // URL a phone can scan (best-effort — fails quiet if that request fails).
   // Keyed on stripUrl (not stage) so this is available the moment a strip
   // exists — in preview, as an alternative to email, not gated behind sending
   // one — and re-runs if a retake or reposition changes the strip afterward.
-  // Optional feature: fails quiet if no Blob token is configured server-side.
   useEffect(() => {
     if (!stripUrl || !blobRef.current) return
     let cancelled = false
 
-    async function createDownloadLink() {
+    async function buildAndUpload() {
+      const parts = await bundleParts()
+      const entries = await Promise.all(
+        parts.map(async (p) => ({
+          name: p.name,
+          data: new Uint8Array(await p.blob.arrayBuffer()),
+        }))
+      )
+      if (cancelled) return
+      const zip = createZip(entries)
+      setZipBlobUrl((old) => {
+        if (old) URL.revokeObjectURL(old)
+        return URL.createObjectURL(zip)
+      })
+
       try {
         const body = new FormData()
         body.append('workspaceId', id)
-        body.append('image', blobRef.current!, 'photostrip.png')
+        body.append('image', zip, 'photobooth-photos.zip')
         const res = await fetch('/api/strip', { method: 'POST', body })
         if (!res.ok) throw new Error((await res.json()).error ?? 'upload failed')
         const { url } = await res.json()
         if (cancelled) return
         setDownloadUrl(url)
-        setQrSrc(await toQrDataUrl(url, { margin: 1, width: 240 }))
+        setQrSrc(await toQrDataUrl(url, { margin: 1, width: 720 }))
       } catch (err) {
         console.warn('Scan-to-download link unavailable:', err)
       }
     }
 
-    createDownloadLink()
+    buildAndUpload()
     return () => {
       cancelled = true
     }
-  }, [stripUrl, id])
+  }, [stripUrl, id, bundleParts])
 
   // Feature-detect the native share sheet (AirDrop on iOS, Nearby Share on
   // Android, etc.) — not every browser can share actual files, only some can,
-  // so this must be checked against the real file rather than assumed from
-  // the API's mere presence. Same stripUrl-keyed availability as above.
+  // and multi-file support varies independently of single-file support, so
+  // this is checked against the exact file set shareStrip() would send.
   useEffect(() => {
     if (!stripUrl || !blobRef.current) {
       setCanShareFiles(false)
       return
     }
-    const file = new File([blobRef.current], 'photostrip.png', { type: 'image/png' })
-    setCanShareFiles(Boolean(navigator.canShare?.({ files: [file] })))
-  }, [stripUrl])
+    let cancelled = false
+    bundleParts().then((parts) => {
+      if (cancelled) return
+      const files = parts.map((p) => new File([p.blob], p.name, { type: 'image/png' }))
+      setCanShareFiles(Boolean(navigator.canShare?.({ files })))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [stripUrl, bundleParts])
 
   async function shareStrip() {
-    if (!blobRef.current) return
-    const file = new File([blobRef.current], 'photostrip.png', { type: 'image/png' })
+    const parts = await bundleParts()
+    if (!parts.length) return
+    const files = parts.map((p) => new File([p.blob], p.name, { type: 'image/png' }))
     try {
-      await navigator.share({ files: [file], title: name })
+      await navigator.share({ files, title: name })
     } catch (err) {
       // AbortError just means the guest closed the share sheet — not a failure.
       if (err instanceof Error && err.name !== 'AbortError') {
@@ -650,31 +695,43 @@ export default function Booth({
                     {error}
                   </p>
                 )}
-                <div className="booth-actions">
-                  <button className="btn-booth is-lg" onClick={() => setStage('email')}>
-                    <MailIcon size={22} />
-                    Email it to me
-                  </button>
-                  {canShareFiles && (
-                    <button type="button" className="btn-booth-ghost" onClick={shareStrip}>
-                      <ShareIcon size={16} />
-                      Share / AirDrop
+                <div className="booth-actions-row">
+                  <div className="booth-actions">
+                    <button className="btn-booth is-lg" onClick={() => setStage('email')}>
+                      <MailIcon size={22} />
+                      Email it to me
                     </button>
-                  )}
-                  <button className="btn-booth-ghost" onClick={startOver}>
-                    Start over
-                  </button>
-                </div>
-                {qrSrc && (
-                  <div className="booth-qr">
-                    <img src={qrSrc} alt="QR code that links to your photo strip" />
-                    <div>
-                      <p className="booth-lede" style={{ margin: 0 }}>
-                        Or scan to download on your phone
-                      </p>
-                    </div>
+                    {canShareFiles ? (
+                      <button type="button" className="btn-booth-ghost" onClick={shareStrip}>
+                        <ShareIcon size={16} />
+                        Share / AirDrop
+                      </button>
+                    ) : (
+                      zipBlobUrl && (
+                        <a
+                          className="btn-booth-ghost"
+                          href={zipBlobUrl}
+                          download="photobooth-photos.zip"
+                        >
+                          Download all
+                        </a>
+                      )
+                    )}
+                    <button className="btn-booth-ghost" onClick={startOver}>
+                      Start over
+                    </button>
                   </div>
-                )}
+                  {qrSrc && (
+                    <div className="booth-qr">
+                      <img src={qrSrc} alt="QR code that downloads your photos" />
+                      <div>
+                        <p className="booth-lede" style={{ margin: 0 }}>
+                          Or scan to download on your phone
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </>
             ) : (
               <>
@@ -755,34 +812,47 @@ export default function Booth({
             <p className="booth-lede">
               Sending to <strong>{email}</strong>. Check spam if it hides.
             </p>
-            <div className="booth-actions is-row">
-              <button className="btn-booth is-lg" onClick={reset}>
-                Next guest
-              </button>
-              {canShareFiles ? (
-                <button type="button" className="btn-booth-ghost" onClick={shareStrip}>
-                  <ShareIcon size={16} />
-                  Share / AirDrop
+            <div className="booth-actions-row">
+              <div className="booth-actions is-row">
+                <button className="btn-booth is-lg" onClick={reset}>
+                  Next guest
                 </button>
-              ) : (
-                <a className="btn-booth-ghost" href={stripUrl} download="photostrip.png">
-                  Download the file
-                </a>
+                {canShareFiles ? (
+                  <button type="button" className="btn-booth-ghost" onClick={shareStrip}>
+                    <ShareIcon size={16} />
+                    Share / AirDrop
+                  </button>
+                ) : (
+                  zipBlobUrl && (
+                    <a
+                      className="btn-booth-ghost"
+                      href={zipBlobUrl}
+                      download="photobooth-photos.zip"
+                    >
+                      Download all
+                    </a>
+                  )
+                )}
+              </div>
+              {qrSrc && (
+                <div className="booth-qr">
+                  <img src={qrSrc} alt="QR code that downloads your photos" />
+                  <div>
+                    <p className="booth-lede" style={{ margin: 0 }}>
+                      Scan to download on your own phone
+                    </p>
+                    <a
+                      className="booth-qr-link"
+                      href={downloadUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {downloadUrl}
+                    </a>
+                  </div>
+                </div>
               )}
             </div>
-            {qrSrc && (
-              <div className="booth-qr">
-                <img src={qrSrc} alt="QR code that links to your photo strip" />
-                <div>
-                  <p className="booth-lede" style={{ margin: 0 }}>
-                    Scan to download on your own phone
-                  </p>
-                  <a className="booth-qr-link" href={downloadUrl} target="_blank" rel="noreferrer">
-                    {downloadUrl}
-                  </a>
-                </div>
-              </div>
-            )}
             <p className="booth-hint is-flat">resetting in {Math.max(resetIn, 0)}s</p>
           </div>
           <div className="booth-strip-hero is-tilted-2">

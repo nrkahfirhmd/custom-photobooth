@@ -6,7 +6,7 @@ import { STRIPS_DIR } from '@/lib/db'
 // a guest's phone. `filename` comes from the request, not a DB row, so it is
 // validated against exactly what POST /api/strip generates before touching
 // the filesystem — anything else (e.g. a `..` traversal attempt) is rejected.
-const SAFE_FILENAME = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.png$/
+const SAFE_FILENAME = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.zip$/
 
 export async function GET(
   _request: Request,
@@ -22,9 +22,12 @@ export async function GET(
 
   return new Response(new Uint8Array(buf), {
     headers: {
-      'Content-Type': 'image/png',
+      'Content-Type': 'application/zip',
       'Cache-Control': 'public, max-age=31536000, immutable',
-      'Content-Disposition': 'inline; filename="photostrip.png"',
+      // attachment (not inline): scanning the QR should prompt a download
+      // immediately, not open a viewer — doubly true for a .zip, which
+      // browsers can't render anyway.
+      'Content-Disposition': 'attachment; filename="photobooth-photos.zip"',
     },
   })
 }

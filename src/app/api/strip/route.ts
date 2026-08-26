@@ -3,11 +3,13 @@ import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { STRIPS_DIR } from '@/lib/db'
 
-// Public: the guest's own browser uploads its finished strip so it can hand
-// back a URL a phone can scan and fetch — self-hosted on local disk, same as
-// frame uploads. Whatever makes this server reachable to guests already
-// (a reverse proxy, ngrok, etc.) is what makes the QR link work too.
-const MAX_BYTES = 20 * 1024 * 1024
+// Public: the guest's own browser uploads a .zip bundling the strip and every
+// raw photo, so it can hand back a URL a phone can scan and fetch — self-hosted
+// on local disk, same as frame uploads. Whatever makes this server reachable
+// to guests already (a reverse proxy, ngrok, etc.) is what makes the QR work.
+// Several full-res raw photos plus the strip, uncompressed in the zip, so the
+// cap is generous — not just one PNG anymore.
+const MAX_BYTES = 80 * 1024 * 1024
 
 /**
  * `request.url` reflects the address Next's dev server is bound to
@@ -38,7 +40,7 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Image is too large' }, { status: 400 })
   }
 
-  const filename = `${randomUUID()}.png`
+  const filename = `${randomUUID()}.zip`
   await writeFile(path.join(STRIPS_DIR, filename), Buffer.from(await image.arrayBuffer()))
 
   return Response.json({ url: `${publicOrigin(request)}/api/strip/${filename}` })

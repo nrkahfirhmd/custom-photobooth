@@ -811,11 +811,35 @@ button.danger:hover:not(:disabled) {
   max-width: 420px;
 }
 
+/* align-items:stretch (the default) already makes every button match the
+   widest one's content-driven size — this raises that floor so the whole
+   column reads wider, not just internally consistent. */
+.booth-actions:not(.is-row) > * {
+  min-width: 400px;
+}
+
 .booth-actions.is-row {
   flex-direction: row;
   flex-wrap: wrap;
   align-items: center;
   max-width: none;
+}
+
+/* Puts the QR beside the action buttons instead of stacked underneath.
+   Wraps on narrow screens rather than squeezing the QR down to nothing. */
+/* Markup order is [buttons, QR]; column-reverse flips the visual stack so
+   the QR renders above the buttons. */
+.booth-actions-row {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-start;
+  gap: var(--space-xl);
+  margin-top: 38px;
+}
+
+.booth-actions-row .booth-actions,
+.booth-actions-row .booth-qr {
+  margin-top: 0;
 }
 
 .booth-qr {
@@ -831,10 +855,10 @@ button.danger:hover:not(:disabled) {
      against the dark booth background. */
   flex: none;
   display: block;
-  width: 96px;
-  height: 96px;
-  padding: 8px;
-  border-radius: 10px;
+  width: 260px;
+  height: 260px;
+  padding: 16px;
+  border-radius: 18px;
   background: #fff;
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
 }
