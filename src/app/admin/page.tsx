@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { isAdmin } from '@/lib/auth'
 import { db, listWorkspaces } from '@/lib/db'
+import { AlertIcon, CameraIcon, CheckIcon, ExternalIcon } from '@/components/icons'
 import NewWorkspaceButton from './NewWorkspaceButton'
 
 export const dynamic = 'force-dynamic'
@@ -23,41 +24,72 @@ export default async function AdminPage() {
 
   return (
     <div className="wrap">
-      <div className="row between">
-        <h1>Workspaces</h1>
+      <div className="row between" style={{ marginBottom: 'var(--space-xl)' }}>
+        <div>
+          <h1>Workspaces</h1>
+          <p className="muted" style={{ margin: '4px 0 0' }}>
+            One workspace per event — its own frame, shot count and email sender.
+          </p>
+        </div>
         <NewWorkspaceButton />
       </div>
 
-      <div className="card" style={{ marginTop: '1.25rem' }}>
-        {workspaces.length === 0 && (
-          <p className="muted">
-            No workspaces yet. Create one for your event, upload a frame, position the
-            photo slots, and add the email sender.
+      {workspaces.length === 0 ? (
+        <div className="card empty rise">
+          <CameraIcon size={48} />
+          <h2>No workspaces yet</h2>
+          <p className="muted" style={{ maxWidth: 420, margin: '0 auto' }}>
+            Create one for your event, upload a frame, position the photo slots, then add
+            the email sender.
           </p>
-        )}
-        {workspaces.map((ws) => {
-          const health = healthFor(ws.id)
-          return (
-            <div key={ws.id} className="ws-item">
-              <div>
-                <Link href={`/admin/${ws.id}`}>
-                  <strong>{ws.name}</strong>
-                </Link>
-                <div className="muted">
-                  {ws.shot_count} photo{ws.shot_count === 1 ? '' : 's'} ·{' '}
-                  {ws.frame_file ? 'frame set' : 'no frame yet'} ·{' '}
-                  {health.total === 0
-                    ? 'no sends yet'
-                    : `${health.total} sent, ${health.failed} failed`}
+        </div>
+      ) : (
+        <div className="ws-list">
+          {workspaces.map((ws) => {
+            const health = healthFor(ws.id)
+            return (
+              <div key={ws.id} className="ws-card rise">
+                <div style={{ minWidth: 0 }}>
+                  <h3>
+                    <Link href={`/admin/${ws.id}`}>{ws.name}</Link>
+                  </h3>
+                  <div className="meta">
+                    <span>
+                      {ws.shot_count} photo{ws.shot_count === 1 ? '' : 's'}
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <span>{ws.frame_file ? 'Frame set' : 'No frame yet'}</span>
+                    {health.total > 0 && (
+                      <span
+                        className={`badge ${health.failed > 0 ? 'warn' : ''}`}
+                        title={`${health.total} send attempts, ${health.failed} failed`}
+                      >
+                        {health.failed > 0 ? (
+                          <AlertIcon size={13} />
+                        ) : (
+                          <CheckIcon size={13} />
+                        )}
+                        {health.failed > 0
+                          ? `${health.failed} of ${health.total} failed`
+                          : `${health.total} sent`}
+                      </span>
+                    )}
+                  </div>
                 </div>
+                <Link
+                  href={`/b/${ws.id}`}
+                  target="_blank"
+                  className="row"
+                  style={{ gap: 6, flex: 'none', textDecoration: 'none' }}
+                >
+                  Booth
+                  <ExternalIcon size={16} />
+                </Link>
               </div>
-              <Link href={`/b/${ws.id}`} target="_blank" className="muted">
-                open booth ↗
-              </Link>
-            </div>
-          )
-        })}
-      </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

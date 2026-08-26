@@ -123,9 +123,9 @@ export default function SlotAligner({
         {/* Frame sits on top so slots preview exactly how photos will be covered. */}
         <img src={frameUrl} alt="" />
       </div>
-      <p className="muted" style={{ marginTop: '0.6rem' }}>
-        Drag a numbered box to move it, drag its corner to resize. Photo 1 goes in box
-        1. Frame is {frameW}×{frameH}.
+      <p className="muted" style={{ marginTop: 'var(--space-md)' }}>
+        Drag a numbered box to move it, drag its corner handle to resize. Photo 1 goes in
+        box 1. Frame is {frameW}×{frameH}.
       </p>
     </>
   )

@@ -1,5 +1,8 @@
 import type { Metadata } from 'next'
+import { Karla } from 'next/font/google'
 import './globals.css'
+
+const karla = Karla({ subsets: ['latin'], variable: '--font-karla', display: 'swap' })
 
 export const metadata: Metadata = {
   title: 'Photobooth',
@@ -8,7 +11,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={karla.variable}>
       <body>{children}</body>
     </html>
   )

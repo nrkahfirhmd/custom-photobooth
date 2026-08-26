@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
+import { PlusIcon } from '@/components/icons'
 
 export default function NewWorkspaceButton() {
   const router = useRouter()
@@ -22,7 +23,13 @@ export default function NewWorkspaceButton() {
   }
 
   return (
-    <button className="primary" onClick={create} disabled={busy}>
+    <button
+      className="primary row"
+      style={{ gap: 6 }}
+      onClick={create}
+      disabled={busy}
+    >
+      <PlusIcon size={18} />
       New workspace
     </button>
   )

@@ -8,6 +8,7 @@ import {
   type Photo,
   type Slot,
 } from '@/lib/composite'
+import { AlertIcon, CameraIcon, CheckIcon, MailIcon } from '@/components/icons'
 
 type Props = {
   id: string
@@ -39,6 +40,7 @@ export default function Booth({
   const [stage, setStage] = useState<Stage>('start')
   const [cameraError, setCameraError] = useState('')
   const [countdown, setCountdown] = useState<number | null>(null)
+  const [flash, setFlash] = useState(0)
   const [taken, setTaken] = useState(0)
   const [stripUrl, setStripUrl] = useState('')
   const [email, setEmail] = useState('')
@@ -120,6 +122,8 @@ export default function Booth({
         setStage('start')
         return
       }
+      // Shutter flash: confirms the shot landed, since there is no audible click.
+      setFlash((f) => f + 1)
       photos.push(photo)
       setTaken(i + 1)
       await sleep(600)
@@ -178,9 +182,16 @@ export default function Booth({
   if (cameraError) {
     return (
       <div className="booth">
-        <h1>{name}</h1>
-        <p className="err">{cameraError}</p>
-        <button onClick={() => window.location.reload()}>Reload</button>
+        <span className="step-n" style={{ width: 64, height: 64, background: 'rgba(178,58,76,.14)', color: 'var(--err)' }}>
+          <AlertIcon size={32} />
+        </span>
+        <h1 className="booth-title">{name}</h1>
+        <p className="err" role="alert" style={{ maxWidth: 400 }}>
+          {cameraError}
+        </p>
+        <button className="secondary" onClick={() => window.location.reload()}>
+          Reload
+        </button>
       </div>
     )
   }
@@ -188,11 +199,17 @@ export default function Booth({
   if (stage === 'sent') {
     return (
       <div className="booth">
-        <h1>Sent! 🎉</h1>
-        <p className="muted">Your photos are on the way to {email}.</p>
+        <span
+          className="step-n rise"
+          style={{ width: 64, height: 64, background: 'rgba(63,127,99,.16)', color: 'var(--ok)' }}
+        >
+          <CheckIcon size={34} />
+        </span>
+        <h1 className="booth-title">On its way</h1>
+        <p className="muted">Your photos are heading to {email}.</p>
         {stripUrl && (
-          <div className="stage">
-            <img src={stripUrl} alt="Your photo strip" />
+          <div className="stage is-preview rise">
+            <img src={stripUrl} alt="Your finished photo strip" />
           </div>
         )}
         <button className="primary" onClick={() => window.location.reload()}>
@@ -206,9 +223,16 @@ export default function Booth({
 
   return (
     <div className="booth">
-      <h1>{name}</h1>
+      <h1 className="booth-title">{name}</h1>
 
-      <div className="stage">
+      {stage === 'start' && (
+        <p className="muted">
+          {shotCount} photo{shotCount === 1 ? '' : 's'}, taken back to back with a
+          countdown.
+        </p>
+      )}
+
+      <div className={`stage ${showPreview ? 'is-preview' : ''}`}>
         {/* The video element stays mounted so the stream survives a retake. */}
         <video
           ref={videoRef}
@@ -217,38 +241,46 @@ export default function Booth({
           autoPlay
           style={{ display: showPreview ? 'none' : 'block' }}
         />
-        {showPreview && stripUrl && <img src={stripUrl} alt="Your photo strip" />}
-        {countdown !== null && <div className="countdown">{countdown}</div>}
+        {showPreview && stripUrl && <img src={stripUrl} alt="Your finished photo strip" />}
+        {countdown !== null && (
+          <div className="countdown" aria-live="assertive">
+            <span key={countdown}>{countdown}</span>
+          </div>
+        )}
+        {flash > 0 && !showPreview && countdown === null && (
+          <div key={flash} className="flash" />
+        )}
       </div>
 
       {stage === 'capturing' && (
         <>
-          <div className="shots">
+          <div className="shots" aria-hidden="true">
             {Array.from({ length: shotCount }, (_, i) => (
               <span key={i} className={`pip ${i < taken ? 'done' : ''}`} />
             ))}
           </div>
-          <p className="muted">
-            Photo {Math.min(taken + 1, shotCount)} of {shotCount} — get ready!
+          <p className="muted" aria-live="polite">
+            Photo {Math.min(taken + 1, shotCount)} of {shotCount} — get ready
           </p>
         </>
       )}
 
       {stage === 'start' && (
         <>
-          <p className="muted">
-            {shotCount} photo{shotCount === 1 ? '' : 's'}, taken back to back with a
-            countdown.
-          </p>
-          {error && <p className="err">{error}</p>}
-          <button className="primary" onClick={runCapture}>
+          {error && (
+            <p className="err" role="alert">
+              {error}
+            </p>
+          )}
+          <button className="primary row" style={{ gap: 8 }} onClick={runCapture}>
+            <CameraIcon size={20} />
             Start
           </button>
         </>
       )}
 
       {showPreview && (
-        <form onSubmit={send} style={{ width: 'min(100%, 420px)' }}>
+        <form onSubmit={send}>
           <div className="field">
             <label htmlFor="email">Where should we send it?</label>
             <input
@@ -256,17 +288,29 @@ export default function Booth({
               type="email"
               required
               placeholder="you@example.com"
+              autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               disabled={stage === 'sending'}
+              aria-describedby={error ? 'send-error' : undefined}
             />
+            {error && (
+              <p id="send-error" className="err" role="alert" style={{ marginBottom: 0 }}>
+                {error}
+              </p>
+            )}
           </div>
-          {error && <p className="err">{error}</p>}
-          <div className="row" style={{ justifyContent: 'center' }}>
-            <button type="button" onClick={retake} disabled={stage === 'sending'}>
+          <div className="row">
+            <button
+              type="button"
+              className="secondary"
+              onClick={retake}
+              disabled={stage === 'sending'}
+            >
               Retake
             </button>
-            <button className="primary" disabled={stage === 'sending' || !email}>
+            <button className="primary row" style={{ gap: 8 }} disabled={stage === 'sending' || !email}>
+              <MailIcon size={18} />
               {stage === 'sending' ? 'Sending…' : 'Send it to me'}
             </button>
           </div>

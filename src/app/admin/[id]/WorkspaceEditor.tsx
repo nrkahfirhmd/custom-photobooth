@@ -5,6 +5,14 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import SlotAligner from '@/components/SlotAligner'
 import { defaultSlots, type Slot } from '@/lib/composite'
+import {
+  AlertIcon,
+  ArrowLeftIcon,
+  CheckIcon,
+  ExternalIcon,
+  MailIcon,
+  XIcon,
+} from '@/components/icons'
 
 type Workspace = {
   id: string
@@ -24,6 +32,15 @@ type Workspace = {
 
 type SendRecord = { to: string; ok: boolean; error: string | null; at: number }
 
+function Step({ n, title }: { n: number; title: string }) {
+  return (
+    <div className="step">
+      <span className="step-n">{n}</span>
+      <h2>{title}</h2>
+    </div>
+  )
+}
+
 export default function WorkspaceEditor({
   workspace,
   recent,
@@ -39,6 +56,7 @@ export default function WorkspaceEditor({
   const [busy, setBusy] = useState(false)
   const [testTo, setTestTo] = useState('')
   const [boothUrl, setBoothUrl] = useState('')
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     setBoothUrl(`${window.location.origin}/b/${ws.id}`)
@@ -130,25 +148,48 @@ export default function WorkspaceEditor({
     else setStatus({ text: 'Could not delete.', ok: false })
   }
 
+  async function copyLink() {
+    await navigator.clipboard?.writeText(boothUrl)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
   return (
     <div className="wrap">
-      <div className="row between">
+      <Link
+        href="/admin"
+        className="row"
+        style={{ gap: 6, textDecoration: 'none', marginBottom: 'var(--space-md)' }}
+      >
+        <ArrowLeftIcon size={16} />
+        All workspaces
+      </Link>
+
+      <div className="row between" style={{ marginBottom: 'var(--space-xl)' }}>
         <h1>{ws.name}</h1>
-        <Link href="/admin" className="muted">
-          ← all workspaces
+        <Link
+          href={`/b/${ws.id}`}
+          target="_blank"
+          className="row"
+          style={{ gap: 6, textDecoration: 'none' }}
+        >
+          Open booth
+          <ExternalIcon size={16} />
         </Link>
       </div>
 
-      <div className="card" style={{ marginTop: '1.25rem' }}>
-        <h2>Booth link</h2>
-        <p className="note" style={{ wordBreak: 'break-all' }}>
-          {boothUrl || `/b/${ws.id}`}
-        </p>
-        <p className="muted">Share this with guests. It opens straight into the booth.</p>
-      </div>
+      {status && (
+        <div
+          className={`toast ${status.ok ? 'is-ok' : 'is-err'}`}
+          role={status.ok ? 'status' : 'alert'}
+        >
+          {status.ok ? <CheckIcon size={18} /> : <AlertIcon size={18} />}
+          {status.text}
+        </div>
+      )}
 
-      <div className="card">
-        <h2>Basics</h2>
+      <div className="card rise">
+        <Step n={1} title="Basics" />
         <div className="grid2">
           <div className="field">
             <label htmlFor="name">Workspace name</label>
@@ -169,14 +210,17 @@ export default function WorkspaceEditor({
               value={ws.shot_count}
               onChange={(e) => setShotCount(Number(e.target.value))}
             />
+            <p className="muted" style={{ marginBottom: 0 }}>
+              How many shots the booth takes, back to back.
+            </p>
           </div>
         </div>
       </div>
 
-      <div className="card">
-        <h2>Frame &amp; photo slots</h2>
+      <div className="card rise">
+        <Step n={2} title="Frame & photo slots" />
         <div className="field">
-          <label htmlFor="frame">Frame image (transparent PNG, any size)</label>
+          <label htmlFor="frame">Frame image</label>
           <input
             id="frame"
             type="file"
@@ -187,6 +231,9 @@ export default function WorkspaceEditor({
               e.target.value = ''
             }}
           />
+          <p className="muted">
+            Transparent PNG, any size. Photos show through wherever it is transparent.
+          </p>
         </div>
         <SlotAligner
           frameUrl={ws.has_frame ? `/api/frame/${ws.id}?v=${frameVersion}` : null}
@@ -197,8 +244,12 @@ export default function WorkspaceEditor({
         />
       </div>
 
-      <div className="card">
-        <h2>Email sender (your own SMTP)</h2>
+      <div className="card rise">
+        <Step n={3} title="Email sender" />
+        <p className="muted" style={{ marginTop: '-8px', marginBottom: 'var(--space-md)' }}>
+          Your own SMTP. Stored encrypted. With Gmail, use an app password, not your
+          login password.
+        </p>
         <div className="grid2">
           <div className="field">
             <label htmlFor="host">SMTP host</label>
@@ -230,12 +281,12 @@ export default function WorkspaceEditor({
           </div>
           <div className="field">
             <label htmlFor="pass">
-              SMTP password {ws.has_smtp_pass && '(saved — leave blank to keep)'}
+              SMTP password {ws.has_smtp_pass && '· saved'}
             </label>
             <input
               id="pass"
               type="password"
-              placeholder={ws.has_smtp_pass ? '••••••••' : ''}
+              placeholder={ws.has_smtp_pass ? 'Leave blank to keep' : ''}
               value={smtpPass}
               onChange={(e) => setSmtpPass(e.target.value)}
             />
@@ -260,57 +311,77 @@ export default function WorkspaceEditor({
             />
           </div>
         </div>
-        <p className="muted">
-          Stored encrypted. With Gmail, use an app password, not your login password.
-        </p>
       </div>
 
-      <div className="row between" style={{ marginBottom: '1.25rem' }}>
+      <div className="card rise">
+        <Step n={4} title="Test the sender" />
+        <p className="muted" style={{ marginTop: '-8px', marginBottom: 'var(--space-md)' }}>
+          Save first, then send yourself a test. This is the only way to know the
+          credentials work before the event.
+        </p>
+        <div className="row">
+          <input
+            type="email"
+            aria-label="Test recipient email"
+            placeholder="you@example.com"
+            value={testTo}
+            onChange={(e) => setTestTo(e.target.value)}
+            style={{ flex: 1, minWidth: 200 }}
+          />
+          <button
+            className="secondary row"
+            style={{ gap: 6 }}
+            onClick={sendTest}
+            disabled={busy || !testTo}
+          >
+            <MailIcon size={18} />
+            Send test
+          </button>
+        </div>
+      </div>
+
+      <div className="card rise">
+        <Step n={5} title="Share the booth link" />
+        <p className="note">{boothUrl || `/b/${ws.id}`}</p>
+        <button
+          className="secondary"
+          style={{ marginTop: 'var(--space-md)' }}
+          onClick={copyLink}
+          disabled={!boothUrl}
+        >
+          {copied ? 'Copied' : 'Copy link'}
+        </button>
+      </div>
+
+      <div className="card rise">
+        <h2>Recent sends</h2>
+        {recent.length === 0 && <p className="muted">Nothing sent yet.</p>}
+        {recent.map((r, i) => (
+          <div key={i} className="log-row">
+            <div className="row" style={{ gap: 'var(--space-sm)', alignItems: 'flex-start' }}>
+              <span className={r.ok ? 'ok' : 'err'} style={{ display: 'flex' }}>
+                {r.ok ? <CheckIcon size={18} /> : <XIcon size={18} />}
+                <span className="sr-only">{r.ok ? 'Delivered' : 'Failed'}</span>
+              </span>
+              <div style={{ minWidth: 0 }}>
+                {r.to}
+                {r.error && <div className="muted">{r.error}</div>}
+              </div>
+            </div>
+            <span className="muted" style={{ flex: 'none' }}>
+              {new Date(r.at).toLocaleString()}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <div className="row between">
         <button className="primary" onClick={save} disabled={busy}>
           {busy ? 'Working…' : 'Save changes'}
         </button>
         <button className="danger" onClick={remove} disabled={busy}>
           Delete workspace
         </button>
-      </div>
-
-      {status && (
-        <p className={status.ok ? 'ok' : 'err'} role="status">
-          {status.text}
-        </p>
-      )}
-
-      <div className="card">
-        <h2>Test the sender</h2>
-        <p className="muted" style={{ marginBottom: '0.6rem' }}>
-          Save first, then send yourself a test so you know it works before the event.
-        </p>
-        <div className="row">
-          <input
-            type="email"
-            placeholder="you@example.com"
-            value={testTo}
-            onChange={(e) => setTestTo(e.target.value)}
-            style={{ flex: 1, minWidth: 200 }}
-          />
-          <button onClick={sendTest} disabled={busy || !testTo}>
-            Send test
-          </button>
-        </div>
-      </div>
-
-      <div className="card">
-        <h2>Recent sends</h2>
-        {recent.length === 0 && <p className="muted">Nothing sent yet.</p>}
-        {recent.map((r, i) => (
-          <div key={i} className="ws-item">
-            <div>
-              <span className={r.ok ? 'ok' : 'err'}>{r.ok ? '✓' : '✕'}</span> {r.to}
-              {r.error && <div className="muted">{r.error}</div>}
-            </div>
-            <span className="muted">{new Date(r.at).toLocaleString()}</span>
-          </div>
-        ))}
       </div>
     </div>
   )

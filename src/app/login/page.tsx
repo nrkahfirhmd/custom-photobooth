@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
+import { CameraIcon } from '@/components/icons'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -28,21 +29,38 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="wrap" style={{ maxWidth: 380, paddingTop: '15vh' }}>
-      <h1>Photobooth admin</h1>
-      <form className="card" style={{ marginTop: '1.25rem' }} onSubmit={submit}>
+    <div className="wrap" style={{ maxWidth: 420, paddingTop: '14vh' }}>
+      <div className="rise" style={{ textAlign: 'center', marginBottom: 'var(--space-lg)' }}>
+        <span
+          className="step-n"
+          style={{ width: 56, height: 56, margin: '0 auto var(--space-md)' }}
+        >
+          <CameraIcon size={28} />
+        </span>
+        <h1>Photobooth</h1>
+        <p className="muted">Sign in to manage your events.</p>
+      </div>
+
+      <form className="card rise" onSubmit={submit}>
         <div className="field">
           <label htmlFor="password">Admin password</label>
           <input
             id="password"
             type="password"
             autoFocus
+            autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            aria-describedby={error ? 'login-error' : undefined}
           />
+          {/* Error sits with its field, and is announced. */}
+          {error && (
+            <p id="login-error" className="err" role="alert" style={{ marginBottom: 0 }}>
+              {error}
+            </p>
+          )}
         </div>
-        {error && <p className="err">{error}</p>}
-        <button className="primary" disabled={busy || !password}>
+        <button className="primary" style={{ width: '100%' }} disabled={busy || !password}>
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
