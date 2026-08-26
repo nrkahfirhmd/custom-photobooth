@@ -818,6 +818,35 @@ button.danger:hover:not(:disabled) {
   max-width: none;
 }
 
+.booth-qr {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: var(--space-lg);
+  max-width: 420px;
+}
+
+.booth-qr img {
+  /* White padded box: the QR needs a light quiet zone to scan reliably
+     against the dark booth background. */
+  flex: none;
+  display: block;
+  width: 96px;
+  height: 96px;
+  padding: 8px;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+}
+
+.booth-qr-link {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--b-muted);
+  word-break: break-all;
+}
+
 .booth-badge {
   display: grid;
   place-items: center;

@@ -97,6 +97,14 @@ export const MoveIcon = (p: Props) => (
   </Svg>
 )
 
+export const ShareIcon = (p: Props) => (
+  <Svg {...p}>
+    <path d="M12 3v12" />
+    <path d="m8 7 4-4 4 4" />
+    <path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7" />
+  </Svg>
+)
+
 export const ImageIcon = (p: Props) => (
   <Svg {...p}>
     <rect x="3" y="3" width="18" height="18" rx="2" />

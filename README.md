@@ -33,8 +33,8 @@ Then:
 npm run dev
 ```
 
-Admin is at `/admin`, and data lives in `data/` (SQLite + uploaded frames), which
-is gitignored. Back that folder up if the events matter.
+Admin is at `/admin`, and data lives in `data/` (SQLite, uploaded frames, and
+saved strips), which is gitignored. Back that folder up if the events matter.
 
 ## Running an event
 
@@ -54,6 +54,24 @@ is gitignored. Back that folder up if the events matter.
 
 The workspace list shows how many emails each booth has sent and how many failed,
 and each workspace page lists recent sends with the SMTP error for any failure.
+
+### Scan-to-download QR and Share/AirDrop
+
+The preview screen (and the confirmation screen after emailing) also offers
+two more ways to get the strip, no email required:
+
+- **Share / AirDrop** — on a browser that supports sharing files (iOS Safari,
+  most mobile browsers), opens the native share sheet with the strip already
+  attached.
+- **A QR code** a phone scans to download the strip directly — useful when
+  the booth itself is a shared/kiosk device (a tablet, say) and the guest
+  wants the file on their *own* phone.
+
+The QR needs a real URL a phone can fetch — `blob:` URLs only exist inside
+the booth's own browser tab. The strip is saved to `data/strips/` (same as
+uploaded frames) and served back from this app itself, so whatever already
+makes the booth reachable to guests (a reverse proxy, ngrok, etc.) is what
+makes the QR link work too — no extra setup or third-party storage.
 
 ## Production
 

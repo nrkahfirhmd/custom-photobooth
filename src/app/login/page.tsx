@@ -1,23 +1,31 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { CameraIcon } from '@/components/icons'
 
 export default function LoginPage() {
   const router = useRouter()
+  const inputRef = useRef<HTMLInputElement>(null)
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
+    // Some password managers write the field's DOM value directly without
+    // firing the input event React listens for, so `password` state can lag
+    // behind what's actually on screen (the field looks filled, the button
+    // even looks enabled, but the submitted value is stale/empty). Read the
+    // DOM directly so what gets sent always matches what's visibly typed.
+    const value = inputRef.current?.value ?? password
+    if (!value) return
     setBusy(true)
     setError('')
     const res = await fetch('/api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ password: value }),
     })
     setBusy(false)
     if (res.ok) {
@@ -45,8 +53,10 @@ export default function LoginPage() {
         <div className="field">
           <label htmlFor="password">Admin password</label>
           <input
+            ref={inputRef}
             id="password"
             type="password"
+            required
             autoFocus
             autoComplete="current-password"
             value={password}
@@ -60,7 +70,7 @@ export default function LoginPage() {
             </p>
           )}
         </div>
-        <button className="primary" style={{ width: '100%' }} disabled={busy || !password}>
+        <button className="primary" style={{ width: '100%' }} disabled={busy}>
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
       </form>

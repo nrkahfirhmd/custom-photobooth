@@ -4,8 +4,12 @@ import path from 'node:path'
 
 export const DATA_DIR = path.join(process.cwd(), 'data')
 export const UPLOAD_DIR = path.join(DATA_DIR, 'uploads')
+// Finished guest strips, saved so the scan-to-download QR has a real URL to
+// point at — self-hosted, same as frame uploads, no third-party storage.
+export const STRIPS_DIR = path.join(DATA_DIR, 'strips')
 
 mkdirSync(UPLOAD_DIR, { recursive: true })
+mkdirSync(STRIPS_DIR, { recursive: true })
 
 // Next dev reloads modules; keep one connection on globalThis so we don't leak handles.
 const g = globalThis as { __db?: Database.Database }
