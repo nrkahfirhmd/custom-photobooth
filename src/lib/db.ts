@@ -36,10 +36,27 @@ function open() {
       to_email     TEXT NOT NULL,
       ok           INTEGER NOT NULL,
       error        TEXT,
+      files        TEXT NOT NULL DEFAULT '[]',
+      status       TEXT NOT NULL DEFAULT 'ok',
       created_at   INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_send_log_ws ON send_log (workspace_id, created_at DESC);
   `)
+  // Older DBs predate the `files` column (stored strip/photo paths for gallery review + resend).
+  try {
+    db.exec("ALTER TABLE send_log ADD COLUMN files TEXT NOT NULL DEFAULT '[]'")
+  } catch {
+    // already has the column
+  }
+  // Older DBs predate `status` (pending/ok/failed — the send now happens in the
+  // background, so a row can exist before we know the outcome). New rows default
+  // to 'ok'; backfill the ones that actually failed.
+  try {
+    db.exec("ALTER TABLE send_log ADD COLUMN status TEXT NOT NULL DEFAULT 'ok'")
+  } catch {
+    // already has the column
+  }
+  db.exec("UPDATE send_log SET status = 'failed' WHERE ok = 0 AND status != 'pending'")
   return db
 }
 
@@ -81,12 +98,42 @@ export function logSend(
   workspaceId: string,
   toEmail: string,
   ok: boolean,
-  error?: string
+  error?: string,
+  files?: string[]
 ) {
   db.prepare(
-    'INSERT INTO send_log (workspace_id, to_email, ok, error, created_at) VALUES (?, ?, ?, ?, ?)'
-  ).run(workspaceId, toEmail, ok ? 1 : 0, error ?? null, Date.now())
+    'INSERT INTO send_log (workspace_id, to_email, ok, error, files, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(
+    workspaceId,
+    toEmail,
+    ok ? 1 : 0,
+    error ?? null,
+    JSON.stringify(files ?? []),
+    ok ? 'ok' : 'failed',
+    Date.now()
+  )
 }
+
+/** Row exists before the background send has resolved — see resolveSend. */
+export function createPendingSend(workspaceId: string, toEmail: string, files: string[]) {
+  const result = db
+    .prepare(
+      "INSERT INTO send_log (workspace_id, to_email, ok, error, files, status, created_at) VALUES (?, ?, 0, NULL, ?, 'pending', ?)"
+    )
+    .run(workspaceId, toEmail, JSON.stringify(files), Date.now())
+  return result.lastInsertRowid as number
+}
+
+export function resolveSend(id: number, ok: boolean, error?: string) {
+  db.prepare('UPDATE send_log SET ok = ?, status = ?, error = ? WHERE id = ?').run(
+    ok ? 1 : 0,
+    ok ? 'ok' : 'failed',
+    error ?? null,
+    id
+  )
+}
+
+export type SendStatus = 'pending' | 'ok' | 'failed'
 
 export type SendLogRow = {
   id: number
@@ -94,7 +141,15 @@ export type SendLogRow = {
   to_email: string
   ok: number
   error: string | null
+  files: string
+  status: SendStatus
   created_at: number
+}
+
+export function getSendLog(workspaceId: string, id: number) {
+  return db
+    .prepare('SELECT * FROM send_log WHERE id = ? AND workspace_id = ?')
+    .get(id, workspaceId) as SendLogRow | undefined
 }
 
 export function recentSends(workspaceId: string, limit = 20) {

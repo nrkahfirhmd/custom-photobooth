@@ -10,6 +10,7 @@ import {
   ArrowLeftIcon,
   CheckIcon,
   ExternalIcon,
+  ImageIcon,
   MailIcon,
   XIcon,
 } from '@/components/icons'
@@ -30,7 +31,13 @@ type Workspace = {
   from_email: string
 }
 
-type SendRecord = { to: string; ok: boolean; error: string | null; at: number }
+type SendRecord = {
+  to: string
+  ok: boolean
+  status: 'pending' | 'ok' | 'failed'
+  error: string | null
+  at: number
+}
 
 function Step({ n, title }: { n: number; title: string }) {
   return (
@@ -354,17 +361,39 @@ export default function WorkspaceEditor({
       </div>
 
       <div className="card rise">
-        <h2>Recent sends</h2>
+        <div className="row between" style={{ marginBottom: 'var(--space-md)' }}>
+          <h2 style={{ marginBottom: 0 }}>Recent sends</h2>
+          <Link
+            href={`/admin/${ws.id}/gallery`}
+            className="row"
+            style={{ gap: 6, textDecoration: 'none' }}
+          >
+            <ImageIcon size={16} />
+            Open gallery
+          </Link>
+        </div>
         {recent.length === 0 && <p className="muted">Nothing sent yet.</p>}
         {recent.map((r, i) => (
           <div key={i} className="log-row">
             <div className="row" style={{ gap: 'var(--space-sm)', alignItems: 'flex-start' }}>
-              <span className={r.ok ? 'ok' : 'err'} style={{ display: 'flex' }}>
-                {r.ok ? <CheckIcon size={18} /> : <XIcon size={18} />}
-                <span className="sr-only">{r.ok ? 'Delivered' : 'Failed'}</span>
+              <span
+                className={r.status === 'ok' ? 'ok' : r.status === 'pending' ? 'muted' : 'err'}
+                style={{ display: 'flex' }}
+              >
+                {r.status === 'ok' ? (
+                  <CheckIcon size={18} />
+                ) : r.status === 'pending' ? (
+                  <MailIcon size={18} />
+                ) : (
+                  <XIcon size={18} />
+                )}
+                <span className="sr-only">
+                  {r.status === 'ok' ? 'Delivered' : r.status === 'pending' ? 'Sending' : 'Failed'}
+                </span>
               </span>
               <div style={{ minWidth: 0 }}>
                 {r.to}
+                {r.status === 'pending' && <div className="muted">Sending…</div>}
                 {r.error && <div className="muted">{r.error}</div>}
               </div>
             </div>

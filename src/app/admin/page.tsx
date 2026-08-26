@@ -12,7 +12,8 @@ type Health = { total: number; failed: number }
 function healthFor(id: string): Health {
   return db
     .prepare(
-      `SELECT COUNT(*) AS total, COALESCE(SUM(1 - ok), 0) AS failed
+      `SELECT COUNT(*) AS total,
+              COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failed
        FROM send_log WHERE workspace_id = ?`
     )
     .get(id) as Health

@@ -37,6 +37,7 @@ export default async function WorkspacePage({
       recent={recentSends(ws.id, 10).map((r) => ({
         to: r.to_email,
         ok: Boolean(r.ok),
+        status: r.status,
         error: r.error,
         at: r.created_at,
       }))}

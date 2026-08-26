@@ -1,4 +1,4 @@
-import { unlink } from 'node:fs/promises'
+import { rm, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { requireAdmin } from '@/lib/auth'
 import { encrypt } from '@/lib/crypto'
@@ -73,6 +73,14 @@ export async function DELETE(_request: Request, { params }: Params) {
   const ws = getWorkspace(id)
   if (ws?.frame_file) {
     await unlink(path.join(UPLOAD_DIR, ws.frame_file)).catch(() => {})
+  }
+  for (const row of recentSends(id, 100000)) {
+    for (const rel of JSON.parse(row.files || '[]') as string[]) {
+      await rm(path.join(UPLOAD_DIR, path.dirname(rel)), {
+        recursive: true,
+        force: true,
+      }).catch(() => {})
+    }
   }
   db.prepare('DELETE FROM workspaces WHERE id = ?').run(id)
   db.prepare('DELETE FROM send_log WHERE workspace_id = ?').run(id)

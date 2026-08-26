@@ -419,6 +419,43 @@ button.danger:hover:not(:disabled) {
   color: var(--err);
 }
 
+/* ------------------------------------------------------- push notifications */
+
+.notify-stack {
+  position: fixed;
+  top: var(--space-lg);
+  right: var(--space-lg);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-sm);
+  pointer-events: none;
+}
+
+.notify-toast {
+  pointer-events: auto;
+  max-width: 320px;
+  margin-bottom: 0;
+  box-shadow: var(--shadow-lg);
+  animation: notify-in 0.3s var(--ease-clay);
+}
+
+.notify-toast strong {
+  display: block;
+}
+
+@keyframes notify-in {
+  from {
+    transform: translateX(16px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
 /* --------------------------------------------------------------- admin list */
 
 .ws-list {
@@ -497,6 +534,47 @@ button.danger:hover:not(:disabled) {
 
 .log-row .icon {
   margin-top: 2px;
+}
+
+/* ------------------------------------------------------------------- gallery */
+
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-lg);
+}
+
+.gallery-card {
+  margin-bottom: 0;
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.gallery-thumb {
+  aspect-ratio: 3 / 4;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--sunken);
+}
+
+.gallery-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.gallery-thumb-empty {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  color: var(--muted);
+  font-size: var(--fs-sm);
 }
 
 /* -------------------------------------------------------------- slot aligner */

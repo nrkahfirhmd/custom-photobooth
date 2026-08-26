@@ -1,5 +1,9 @@
-import { getWorkspace, logSend } from '@/lib/db'
+import { randomUUID } from 'node:crypto'
+import { mkdir, writeFile } from 'node:fs/promises'
+import path from 'node:path'
+import { createPendingSend, getWorkspace, logSend, resolveSend, UPLOAD_DIR } from '@/lib/db'
 import { fromHeader, isValidEmail, smtpConfigured, transportFor } from '@/lib/mail'
+import { notifySent } from '@/lib/notify'
 
 const MAX_IMAGE_BYTES = 25 * 1024 * 1024
 
@@ -23,18 +27,10 @@ export async function POST(request: Request) {
   if (image.size > MAX_IMAGE_BYTES) {
     return Response.json({ error: 'Photo is too large' }, { status: 413 })
   }
-  if (!smtpConfigured(ws)) {
-    const message = 'This booth has no email sender configured'
-    logSend(workspaceId, to, false, message)
-    return Response.json({ error: message }, { status: 503 })
-  }
 
+  const stripBuf = Buffer.from(await image.arrayBuffer())
   const attachments = [
-    {
-      filename: 'photostrip.png',
-      content: Buffer.from(await image.arrayBuffer()),
-      contentType: 'image/png',
-    },
+    { filename: 'photostrip.png', content: stripBuf, contentType: 'image/png' },
   ]
 
   for (const [i, raw] of photos.entries()) {
@@ -49,22 +45,43 @@ export async function POST(request: Request) {
     })
   }
 
-  try {
-    await transportFor(ws).sendMail({
+  // Save every send attempt to disk (even on failure) so the admin gallery can
+  // review the strip and resend without asking the guest to shoot again.
+  const sendDir = path.join('sends', randomUUID())
+  await mkdir(path.join(UPLOAD_DIR, sendDir), { recursive: true })
+  const files: string[] = []
+  for (const att of attachments) {
+    const rel = path.join(sendDir, att.filename)
+    await writeFile(path.join(UPLOAD_DIR, rel), att.content)
+    files.push(rel)
+  }
+
+  if (!smtpConfigured(ws)) {
+    const message = 'This booth has no email sender configured'
+    logSend(workspaceId, to, false, message, files)
+    return Response.json({ error: message }, { status: 503 })
+  }
+
+  // The actual SMTP round-trip runs in the background — the guest doesn't wait on
+  // it, and any number of these can be in flight at once. The result lands in the
+  // gallery, and success pushes a live notification to the admin UI.
+  const logId = createPendingSend(workspaceId, to, files)
+  transportFor(ws)
+    .sendMail({
       from: fromHeader(ws),
       to,
       subject: `Your photos from ${ws.name}`,
       text: `Thanks for stopping by ${ws.name}! Your photo strip and individual photos are attached.`,
       attachments,
     })
-    logSend(workspaceId, to, true)
-    return Response.json({ ok: true })
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown SMTP error'
-    logSend(workspaceId, to, false, message)
-    return Response.json(
-      { error: 'We could not send the email. Please try again.' },
-      { status: 502 }
-    )
-  }
+    .then(() => {
+      resolveSend(logId, true)
+      notifySent({ id: logId, workspaceId, workspaceName: ws.name, to, at: Date.now() })
+    })
+    .catch((err) => {
+      const message = err instanceof Error ? err.message : 'Unknown SMTP error'
+      resolveSend(logId, false, message)
+    })
+
+  return Response.json({ ok: true, pending: true })
 }

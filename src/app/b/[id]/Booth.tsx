@@ -540,9 +540,9 @@ export default function Booth({
             <span className="booth-badge is-ok">
               <CheckIcon size={38} />
             </span>
-            <h1 className="booth-display is-sm">In your inbox</h1>
+            <h1 className="booth-display is-sm">On its way</h1>
             <p className="booth-lede">
-              Sent to <strong>{email}</strong>. Check spam if it hides.
+              Sending to <strong>{email}</strong>. Check spam if it hides.
             </p>
             <div className="booth-actions is-row">
               <button className="btn-booth is-lg" onClick={reset}>
