@@ -9,6 +9,7 @@ export async function POST(request: Request) {
   const workspaceId = String(form.get('workspaceId') ?? '')
   const to = form.get('email')
   const image = form.get('image')
+  const photos = form.getAll('photo')
 
   const ws = getWorkspace(workspaceId)
   if (!ws) return Response.json({ error: 'Booth not found' }, { status: 404 })
@@ -28,19 +29,33 @@ export async function POST(request: Request) {
     return Response.json({ error: message }, { status: 503 })
   }
 
+  const attachments = [
+    {
+      filename: 'photostrip.png',
+      content: Buffer.from(await image.arrayBuffer()),
+      contentType: 'image/png',
+    },
+  ]
+
+  for (const [i, raw] of photos.entries()) {
+    if (!(raw instanceof File) || raw.size === 0) continue
+    if (raw.size > MAX_IMAGE_BYTES) {
+      return Response.json({ error: 'Photo is too large' }, { status: 413 })
+    }
+    attachments.push({
+      filename: `photo-${i + 1}.png`,
+      content: Buffer.from(await raw.arrayBuffer()),
+      contentType: 'image/png',
+    })
+  }
+
   try {
     await transportFor(ws).sendMail({
       from: fromHeader(ws),
       to,
       subject: `Your photos from ${ws.name}`,
-      text: `Thanks for stopping by ${ws.name}! Your photo strip is attached.`,
-      attachments: [
-        {
-          filename: 'photostrip.png',
-          content: Buffer.from(await image.arrayBuffer()),
-          contentType: 'image/png',
-        },
-      ],
+      text: `Thanks for stopping by ${ws.name}! Your photo strip and individual photos are attached.`,
+      attachments,
     })
     logSend(workspaceId, to, true)
     return Response.json({ ok: true })

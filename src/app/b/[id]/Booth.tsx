@@ -20,7 +20,7 @@ type Props = {
   slots: Slot[]
 }
 
-type Stage = 'start' | 'capturing' | 'preview' | 'sending' | 'sent'
+type Stage = 'start' | 'capturing' | 'retaking' | 'preview' | 'sending' | 'sent'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -36,12 +36,15 @@ export default function Booth({
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const blobRef = useRef<Blob | null>(null)
+  const photosRef = useRef<Photo[]>([])
 
   const [stage, setStage] = useState<Stage>('start')
   const [cameraError, setCameraError] = useState('')
   const [countdown, setCountdown] = useState<number | null>(null)
   const [flash, setFlash] = useState(0)
   const [taken, setTaken] = useState(0)
+  const [retakeIndex, setRetakeIndex] = useState<number | null>(null)
+  const [thumbs, setThumbs] = useState<string[]>([])
   const [stripUrl, setStripUrl] = useState('')
   const [email, setEmail] = useState('')
   const [error, setError] = useState('')
@@ -58,7 +61,7 @@ export default function Booth({
       }
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'user', width: { ideal: 1920 }, height: { ideal: 1920 } },
+          video: { facingMode: 'user' },
           audio: false,
         })
         if (cancelled) {
@@ -66,6 +69,7 @@ export default function Booth({
           return
         }
         streamRef.current = stream
+        applyMaxResolution(stream)
         if (videoRef.current) {
           videoRef.current.srcObject = stream
           await videoRef.current.play().catch(() => {})
@@ -89,6 +93,25 @@ export default function Booth({
     }
   }, [])
 
+  /** Push the camera to its real hardware ceiling, not a guessed 4096. */
+  const applyMaxResolution = useCallback(async (stream: MediaStream) => {
+    for (const track of stream.getVideoTracks()) {
+      const caps = track.getCapabilities?.()
+      if (!caps) continue
+      const res: MediaTrackConstraints = {}
+      if (typeof caps.width?.max === 'number') res.width = caps.width.max
+      if (typeof caps.height?.max === 'number') res.height = caps.height.max
+      // Max width + height + frame rate together is often unsupported, so apply
+      // resolution first and frame rate separately.
+      if (Object.keys(res).length) {
+        await track.applyConstraints(res).catch(() => {})
+      }
+      if (typeof caps.frameRate?.max === 'number') {
+        await track.applyConstraints({ frameRate: caps.frameRate.max }).catch(() => {})
+      }
+    }
+  }, [])
+
   /** Grab the current video frame, mirrored to match the preview the guest posed against. */
   const grabFrame = useCallback((): Photo | null => {
     const video = videoRef.current
@@ -104,40 +127,97 @@ export default function Booth({
     return { source: canvas, width: canvas.width, height: canvas.height }
   }, [])
 
+  /** Crop the captured frame to 16:9 landscape, centre-cropping a portrait feed. */
+  const toLandscape = useCallback((photo: Photo): Photo => {
+    const target = 16 / 9
+    const w = photo.width
+    const h = photo.height
+    const current = w / h
+    if (Math.abs(current - target) < 0.01) return photo
+    const out = document.createElement('canvas')
+    if (current > target) {
+      out.width = Math.round(h * target)
+      out.height = h
+    } else {
+      out.width = w
+      out.height = Math.round(w / target)
+    }
+    const ctx = out.getContext('2d')
+    if (!ctx) return photo
+    const sw = Math.min(w, h * target)
+    const sh = Math.min(h, w / target)
+    ctx.drawImage(
+      photo.source,
+      (w - sw) / 2,
+      (h - sh) / 2,
+      sw,
+      sh,
+      0,
+      0,
+      out.width,
+      out.height
+    )
+    return { source: out, width: out.width, height: out.height }
+  }, [])
+
+  /** Small jpeg thumbnail for the per-photo retake picker. */
+  const thumbUrl = useCallback((photo: Photo): string => {
+    const max = 200
+    const scale = Math.min(1, max / Math.max(photo.width, photo.height))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(photo.width * scale))
+    canvas.height = Math.max(1, Math.round(photo.height * scale))
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return ''
+    ctx.drawImage(photo.source, 0, 0, canvas.width, canvas.height)
+    return canvas.toDataURL('image/jpeg', 0.6)
+  }, [])
+
+  /** Re-composite the current set of photos into the finished strip. */
+  const buildStrip = useCallback(async (photos: Photo[]) => {
+    const frame = hasFrame ? await loadImage(`/api/frame/${id}`) : null
+    const canvas = compositeStrip(photos, frame, frameW, frameH, slots)
+    const blob = await canvasToBlob(canvas)
+    blobRef.current = blob
+    setStripUrl((old) => {
+      if (old) URL.revokeObjectURL(old)
+      return URL.createObjectURL(blob)
+    })
+    setThumbs(photos.map(thumbUrl))
+  }, [hasFrame, id, frameW, frameH, slots, thumbUrl])
+
+  async function capturePhoto() {
+    for (let n = 3; n > 0; n--) {
+      setCountdown(n)
+      await sleep(1000)
+    }
+    setCountdown(null)
+    const photo = grabFrame()
+    if (!photo) {
+      setCameraError('The camera stopped unexpectedly. Reload and try again.')
+      setStage('start')
+      return null
+    }
+    setFlash((f) => f + 1)
+    await sleep(600)
+    return toLandscape(photo)
+  }
+
   async function runCapture() {
     setStage('capturing')
     setError('')
     setTaken(0)
-    const photos: Photo[] = []
+    photosRef.current = []
 
     for (let i = 0; i < shotCount; i++) {
-      for (let n = 3; n > 0; n--) {
-        setCountdown(n)
-        await sleep(1000)
-      }
-      setCountdown(null)
-      const photo = grabFrame()
-      if (!photo) {
-        setCameraError('The camera stopped unexpectedly. Reload and try again.')
-        setStage('start')
-        return
-      }
-      // Shutter flash: confirms the shot landed, since there is no audible click.
-      setFlash((f) => f + 1)
-      photos.push(photo)
+      const photo = await capturePhoto()
+      if (!photo) return
+      photosRef.current.push(photo)
       setTaken(i + 1)
-      await sleep(600)
     }
 
     try {
-      const frame = hasFrame ? await loadImage(`/api/frame/${id}`) : null
-      const canvas = compositeStrip(photos, frame, frameW, frameH, slots)
-      const blob = await canvasToBlob(canvas)
-      blobRef.current = blob
-      setStripUrl((old) => {
-        if (old) URL.revokeObjectURL(old)
-        return URL.createObjectURL(blob)
-      })
+      await buildStrip(photosRef.current)
       setStage('preview')
     } catch {
       setError('Could not build your photo strip. Please try again.')
@@ -145,8 +225,29 @@ export default function Booth({
     }
   }
 
+  /** Re-shoot just one photo, keeping the others. */
+  async function retakeOne(index: number) {
+    setStage('retaking')
+    setRetakeIndex(index)
+    setError('')
+    const photo = await capturePhoto()
+    if (!photo) return
+    photosRef.current[index] = photo
+    try {
+      await buildStrip(photosRef.current)
+      setRetakeIndex(null)
+      setStage('preview')
+    } catch {
+      setError('Could not build your photo strip. Please try again.')
+      setRetakeIndex(null)
+      setStage('preview')
+    }
+  }
+
   function retake() {
     if (stripUrl) URL.revokeObjectURL(stripUrl)
+    photosRef.current = []
+    setThumbs([])
     setStripUrl('')
     blobRef.current = null
     setError('')
@@ -163,6 +264,13 @@ export default function Booth({
     body.append('workspaceId', id)
     body.append('email', email)
     body.append('image', blobRef.current, 'photostrip.png')
+    for (const photo of photosRef.current) {
+      const source = photo.source as HTMLCanvasElement
+      const blob = await new Promise<Blob | null>((resolve) =>
+        source.toBlob(resolve, 'image/png')
+      )
+      if (blob) body.append('photo', blob, `photo.png`)
+    }
 
     try {
       const res = await fetch('/api/send', { method: 'POST', body })
@@ -220,6 +328,7 @@ export default function Booth({
   }
 
   const showPreview = stage === 'preview' || stage === 'sending'
+  const retaking = stage === 'retaking'
 
   return (
     <div className="booth">
@@ -252,15 +361,17 @@ export default function Booth({
         )}
       </div>
 
-      {stage === 'capturing' && (
+      {(stage === 'capturing' || retaking) && (
         <>
           <div className="shots" aria-hidden="true">
             {Array.from({ length: shotCount }, (_, i) => (
-              <span key={i} className={`pip ${i < taken ? 'done' : ''}`} />
+              <span key={i} className={`pip ${retaking ? 'done' : i < taken ? 'done' : ''}`} />
             ))}
           </div>
           <p className="muted" aria-live="polite">
-            Photo {Math.min(taken + 1, shotCount)} of {shotCount} — get ready
+            {retaking
+              ? `Retaking photo ${(retakeIndex ?? 0) + 1} of ${shotCount}`
+              : `Photo ${Math.min(taken + 1, shotCount)} of ${shotCount} — get ready`}
           </p>
         </>
       )}
@@ -281,6 +392,23 @@ export default function Booth({
 
       {showPreview && (
         <form onSubmit={send}>
+          {thumbs.length > 1 && (
+            <div className="thumb-picker" aria-label="Retake a single photo">
+              {thumbs.map((src, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  className="thumb"
+                  title={`Retake photo ${i + 1}`}
+                  onClick={() => retakeOne(i)}
+                  disabled={stage === 'sending'}
+                >
+                  <img src={src} alt={`Photo ${i + 1}`} />
+                  <span className="thumb-overlay">Retake {i + 1}</span>
+                </button>
+              ))}
+            </div>
+          )}
           <div className="field">
             <label htmlFor="email">Where should we send it?</label>
             <input

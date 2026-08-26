@@ -143,6 +143,30 @@ a {
   justify-content: space-between;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(46, 38, 64, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-lg);
+  z-index: 100;
+}
+
+.modal {
+  width: min(100%, 420px);
+  background: var(--surface);
+  border: 2px solid var(--lilac);
+  border-radius: var(--r-lg);
+  padding: var(--space-lg);
+  box-shadow: var(--shadow-lg), var(--shadow-clay-in);
+}
+
+.modal h2 {
+  margin: 0 0 var(--space-md);
+}
+
 .grid2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -554,11 +578,11 @@ button.danger:hover:not(:disabled) {
 
 .stage {
   position: relative;
-  /* Derive width from the viewport height so a 3:4 stage plus the pips, status
+  /* Derive width from the viewport height so a 16:9 stage plus the pips, status
      line and buttons still fit without pushing controls off a short screen.
      The floor keeps it usable when the viewport is very short (landscape phone). */
   width: max(200px, min(100%, 440px, (100dvh - 260px) * 0.75));
-  aspect-ratio: 3 / 4;
+  aspect-ratio: 16 / 9;
   border-radius: var(--r-lg);
   overflow: hidden;
   background: var(--sunken);
@@ -595,6 +619,10 @@ button.danger:hover:not(:disabled) {
 }
 
 .stage video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   transform: scaleX(-1);
 }
 
@@ -651,6 +679,40 @@ button.danger:hover:not(:disabled) {
 .booth form {
   width: min(100%, 440px);
   text-align: left;
+}
+
+.thumb-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.thumb {
+  position: relative;
+  padding: 0;
+  border: 2px solid var(--lilac);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--sunken);
+  cursor: pointer;
+}
+
+.thumb img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+}
+
+.thumb-overlay {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 4px 0;
+  font-size: var(--fs-label);
+  color: #fff;
+  background: rgba(46, 38, 64, 0.65);
+  text-align: center;
 }
 
 .booth .row {
