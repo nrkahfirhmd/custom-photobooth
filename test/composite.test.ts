@@ -142,6 +142,33 @@ test('photos are cropped to fill the slot without distortion', () => {
   assert.equal(c.sh, 720, 'full height used; the wider axis is what gets cropped')
 })
 
+test('a photo offset shifts the crop window instead of centering it', () => {
+  installCanvasStub()
+  // Same 1280x720-into-520x497 setup as the centred-crop test above.
+  const frameW = 600
+  const frameH = 1800
+  const slot = { x: 40 / 600, y: 40 / 1800, w: 520 / 600, h: 497 / 1800 }
+
+  installCanvasStub()
+  compositeStrip([{ ...photo(1280, 720), offset: { x: 0, y: 0.5 } }], null, frameW, frameH, [
+    slot,
+  ])
+  assert.ok(Math.abs(calls[0].sx - 0) < 0.001, 'offset 0 pins the crop to the left edge')
+
+  installCanvasStub()
+  compositeStrip([{ ...photo(1280, 720), offset: { x: 1, y: 0.5 } }], null, frameW, frameH, [
+    slot,
+  ])
+  const maxSx = 1280 - calls[0].sw
+  assert.ok(Math.abs(calls[0].sx - maxSx) < 0.001, 'offset 1 pins the crop to the right edge')
+
+  installCanvasStub()
+  compositeStrip([{ ...photo(1280, 720), offset: { x: -5, y: 5 } }], null, frameW, frameH, [
+    slot,
+  ])
+  assert.ok(calls[0].sx >= 0 && calls[0].sy >= 0, 'out-of-range offsets clamp into the source')
+})
+
 test('the frame is drawn last so it overlays the photos', () => {
   installCanvasStub()
   const frame = {} as HTMLImageElement

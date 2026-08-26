@@ -90,6 +90,13 @@ export const RefreshIcon = (p: Props) => (
   </Svg>
 )
 
+export const MoveIcon = (p: Props) => (
+  <Svg {...p}>
+    <path d="M12 3v18M3 12h18" />
+    <path d="m9 6 3-3 3 3M9 18l3 3 3-3M6 9 3 12l3 3M18 9l3 3-3 3" />
+  </Svg>
+)
+
 export const ImageIcon = (p: Props) => (
   <Svg {...p}>
     <rect x="3" y="3" width="18" height="18" rx="2" />

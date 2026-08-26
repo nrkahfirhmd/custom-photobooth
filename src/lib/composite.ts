@@ -32,7 +32,14 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
   })
 }
 
-/** Draw `src` into the rect, cropping to fill it without distorting (CSS `object-fit: cover`). */
+const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi)
+
+/**
+ * Draw `src` into the rect, cropping to fill it without distorting (CSS `object-fit: cover`).
+ * `offsetX`/`offsetY` place the crop window within the source, using the same
+ * convention as CSS `object-position`: 0 = align the crop to that edge (showing
+ * the opposite side), 1 = the other edge, 0.5 (the default) = centered.
+ */
 export function drawCover(
   ctx: CanvasRenderingContext2D,
   src: CanvasImageSource,
@@ -41,15 +48,25 @@ export function drawCover(
   dx: number,
   dy: number,
   dw: number,
-  dh: number
+  dh: number,
+  offsetX = 0.5,
+  offsetY = 0.5
 ) {
   const scale = Math.max(dw / sw, dh / sh)
   const cw = dw / scale
   const ch = dh / scale
-  ctx.drawImage(src, (sw - cw) / 2, (sh - ch) / 2, cw, ch, dx, dy, dw, dh)
+  const sx = clamp((sw - cw) * offsetX, 0, sw - cw)
+  const sy = clamp((sh - ch) * offsetY, 0, sh - ch)
+  ctx.drawImage(src, sx, sy, cw, ch, dx, dy, dw, dh)
 }
 
-export type Photo = { source: CanvasImageSource; width: number; height: number }
+export type Photo = {
+  source: CanvasImageSource
+  width: number
+  height: number
+  /** Crop focal point as object-position fractions; defaults to centered. */
+  offset?: { x: number; y: number }
+}
 
 /**
  * Composites the captured photos into the frame at the frame's own native size —
@@ -74,6 +91,7 @@ export function compositeStrip(
   photos.forEach((photo, i) => {
     const slot = slots[i]
     if (!slot) return
+    const offset = photo.offset ?? { x: 0.5, y: 0.5 }
     drawCover(
       ctx,
       photo.source,
@@ -82,7 +100,9 @@ export function compositeStrip(
       slot.x * frameW,
       slot.y * frameH,
       slot.w * frameW,
-      slot.h * frameH
+      slot.h * frameH,
+      offset.x,
+      offset.y
     )
   })
 

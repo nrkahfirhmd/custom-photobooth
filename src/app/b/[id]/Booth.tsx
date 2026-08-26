@@ -8,7 +8,14 @@ import {
   type Photo,
   type Slot,
 } from '@/lib/composite'
-import { AlertIcon, ArrowLeftIcon, CameraIcon, CheckIcon, MailIcon } from '@/components/icons'
+import {
+  AlertIcon,
+  ArrowLeftIcon,
+  CameraIcon,
+  CheckIcon,
+  MailIcon,
+  MoveIcon,
+} from '@/components/icons'
 
 type Props = {
   id: string
@@ -26,8 +33,11 @@ type Shot = { photo: Photo; thumb: string }
 type Stage = 'attract' | 'capturing' | 'preview' | 'email' | 'sent'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi)
 const RESET_SECONDS = 12
 const allIndices = (n: number) => Array.from({ length: n }, (_, i) => i)
+type Offset = { x: number; y: number }
+const CENTERED: Offset = { x: 0.5, y: 0.5 }
 
 export default function Booth({
   id,
@@ -58,6 +68,13 @@ export default function Booth({
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
   const [resetIn, setResetIn] = useState(RESET_SECONDS)
+
+  // Repositioning one photo's crop within its slot — only ever one at a time,
+  // and only reachable from the preview stage.
+  const [repositionIndex, setRepositionIndex] = useState<number | null>(null)
+  const [repositionSrc, setRepositionSrc] = useState('')
+  const [repositionOffset, setRepositionOffset] = useState<Offset>(CENTERED)
+  const dragRef = useRef<{ startX: number; startY: number; origin: Offset } | null>(null)
 
   // Never leave a camera running after the booth unmounts.
   useEffect(() => {
@@ -270,9 +287,76 @@ export default function Booth({
     setStage('preview')
   }
 
+  /** Opens the drag-to-reposition overlay for one photo, seeded from its current crop. */
+  function openReposition(i: number) {
+    const shot = shotsRef.current[i]
+    if (!shot) return
+    setRepositionOffset(shot.photo.offset ?? CENTERED)
+    // A one-off snapshot for the interactive layer — cheap since this only
+    // happens on open, not per drag frame.
+    setRepositionSrc((shot.photo.source as HTMLCanvasElement).toDataURL('image/jpeg', 0.85))
+    setRepositionIndex(i)
+  }
+
+  function cancelReposition() {
+    setRepositionIndex(null)
+    setRepositionSrc('')
+  }
+
+  /** Commits the dragged offset onto that one photo and recomposites the strip. */
+  async function commitReposition() {
+    const i = repositionIndex
+    if (i === null) return
+    const shot = shotsRef.current[i]
+    if (!shot) return cancelReposition()
+
+    const next = [...shotsRef.current]
+    next[i] = { ...shot, photo: { ...shot.photo, offset: repositionOffset } }
+    shotsRef.current = next
+    setShots(next)
+    cancelReposition()
+
+    if (next.every((s): s is Shot => s !== null)) {
+      try {
+        await buildStrip(next)
+      } catch {
+        setError('Could not update your photo strip. Please try again.')
+      }
+    }
+  }
+
+  function dragStart(e: React.PointerEvent) {
+    e.preventDefault()
+    try {
+      ;(e.target as Element).setPointerCapture(e.pointerId)
+    } catch {}
+    dragRef.current = { startX: e.clientX, startY: e.clientY, origin: repositionOffset }
+  }
+
+  function dragMove(e: React.PointerEvent) {
+    const drag = dragRef.current
+    if (!drag) return
+    const box = e.currentTarget.getBoundingClientRect()
+    // Natural "grab and move": dragging the photo right slides it right under a
+    // fixed window, which reveals more of its LEFT side — so the stored crop
+    // fraction moves opposite the pointer, same as Facebook/Instagram's
+    // photo-reposition drag.
+    const dx = (e.clientX - drag.startX) / box.width
+    const dy = (e.clientY - drag.startY) / box.height
+    setRepositionOffset({
+      x: clamp(drag.origin.x - dx, 0, 1),
+      y: clamp(drag.origin.y - dy, 0, 1),
+    })
+  }
+
+  function dragEnd() {
+    dragRef.current = null
+  }
+
   function startOver() {
     shotsRef.current = Array(shotCount).fill(null)
     setShots(Array(shotCount).fill(null))
+    cancelReposition()
     runCapture(allIndices(shotCount))
   }
 
@@ -290,6 +374,7 @@ export default function Booth({
     setEmail('')
     setError('')
     setResetIn(RESET_SECONDS)
+    cancelReposition()
     setStage('attract')
   }
 
@@ -461,28 +546,66 @@ export default function Booth({
           <div className="booth-strip-hero is-tilted">
             <Strip
               {...finishedProps}
-              onSlotClick={(i) => {
-                setRetakeIndex(i)
-                runCapture([i])
-              }}
+              onSlotClick={
+                repositionIndex === null
+                  ? (i) => {
+                      setRetakeIndex(i)
+                      runCapture([i])
+                    }
+                  : undefined
+              }
+              onReposition={repositionIndex === null ? openReposition : undefined}
+              active={
+                repositionIndex === null
+                  ? undefined
+                  : {
+                      index: repositionIndex,
+                      src: repositionSrc,
+                      offset: repositionOffset,
+                      onPointerDown: dragStart,
+                      onPointerMove: dragMove,
+                      onPointerUp: dragEnd,
+                    }
+              }
             />
           </div>
           <div className="booth-copy">
-            <h1 className="booth-display is-sm">Keep it?</h1>
-            {error && (
-              <p className="booth-err" role="alert">
-                {error}
-              </p>
+            {repositionIndex === null ? (
+              <>
+                <h1 className="booth-display is-sm">Keep it?</h1>
+                {error && (
+                  <p className="booth-err" role="alert">
+                    {error}
+                  </p>
+                )}
+                <div className="booth-actions">
+                  <button className="btn-booth is-lg" onClick={() => setStage('email')}>
+                    <MailIcon size={22} />
+                    Email it to me
+                  </button>
+                  <button className="btn-booth-ghost" onClick={startOver}>
+                    Start over
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h1 className="booth-display is-sm">Photo {repositionIndex + 1}</h1>
+                <p className="booth-lede">Drag the photo to move it inside the frame.</p>
+                <div className="booth-actions">
+                  <button className="btn-booth is-lg" onClick={commitReposition}>
+                    <CheckIcon size={22} />
+                    Done
+                  </button>
+                  <button className="btn-booth-ghost" onClick={() => setRepositionOffset(CENTERED)}>
+                    Center it
+                  </button>
+                  <button className="btn-booth-ghost" onClick={cancelReposition}>
+                    Cancel
+                  </button>
+                </div>
+              </>
             )}
-            <div className="booth-actions">
-              <button className="btn-booth is-lg" onClick={() => setStage('email')}>
-                <MailIcon size={22} />
-                Email it to me
-              </button>
-              <button className="btn-booth-ghost" onClick={startOver}>
-                Start over
-              </button>
-            </div>
           </div>
         </div>
       )}
@@ -569,7 +692,8 @@ export default function Booth({
 
 /**
  * The strip itself: photos in their slots, the frame PNG on top, and — in preview —
- * a clickable overlay per slot so one photo can be reshot without losing the others.
+ * a hover overlay per slot with up to two actions (reposition, retake), plus the
+ * live drag layer for whichever one photo is currently being repositioned.
  */
 function Strip({
   slots,
@@ -580,6 +704,8 @@ function Strip({
   activeIndex,
   finalSrc,
   onSlotClick,
+  onReposition,
+  active,
 }: {
   slots: Slot[]
   frameUrl: string | null
@@ -593,6 +719,17 @@ function Strip({
    * actually finished and shown at hero size. */
   finalSrc?: string
   onSlotClick?: (index: number) => void
+  onReposition?: (index: number) => void
+  /** The one slot currently being dragged, if any — drawn on top of `finalSrc`
+   * at that slot's exact rect, so it lines up with what's already baked in. */
+  active?: {
+    index: number
+    src: string
+    offset: { x: number; y: number }
+    onPointerDown: (e: React.PointerEvent) => void
+    onPointerMove: (e: React.PointerEvent) => void
+    onPointerUp: () => void
+  }
 }) {
   const pct = (s: Slot) => ({
     left: `${s.x * 100}%`,
@@ -625,22 +762,49 @@ function Strip({
         </>
       )}
 
-      {onSlotClick &&
+      {active && slots[active.index] && (
+        <div className="strip-reposition" style={pct(slots[active.index])}>
+          <img
+            src={active.src}
+            alt=""
+            draggable={false}
+            style={{
+              objectPosition: `${active.offset.x * 100}% ${active.offset.y * 100}%`,
+            }}
+            onPointerDown={active.onPointerDown}
+            onPointerMove={active.onPointerMove}
+            onPointerUp={active.onPointerUp}
+            onPointerCancel={active.onPointerUp}
+          />
+        </div>
+      )}
+
+      {(onSlotClick || onReposition) &&
         slots.map((slot, i) => (
-          <button
-            key={i}
-            type="button"
-            className="strip-hit"
-            style={pct(slot)}
-            onClick={() => onSlotClick(i)}
-            aria-label={`Retake photo ${i + 1}`}
-          >
-            <span className="strip-num">{i + 1}</span>
-            <span className="strip-redo">
-              <CameraIcon size={16} />
-              Redo this one
-            </span>
-          </button>
+          <div key={i} className="strip-hit" style={pct(slot)}>
+            {onReposition && (
+              <button
+                type="button"
+                className="strip-pill is-move"
+                onClick={() => onReposition(i)}
+                aria-label={`Reposition photo ${i + 1}`}
+              >
+                <MoveIcon size={14} />
+                Reposition
+              </button>
+            )}
+            {onSlotClick && (
+              <button
+                type="button"
+                className="strip-pill"
+                onClick={() => onSlotClick(i)}
+                aria-label={`Retake photo ${i + 1}`}
+              >
+                <CameraIcon size={14} />
+                Redo this one
+              </button>
+            )}
+          </div>
         ))}
     </div>
   )
