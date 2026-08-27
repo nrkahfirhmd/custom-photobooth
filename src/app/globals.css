@@ -976,7 +976,8 @@ button.danger:hover:not(:disabled) {
 
 .btn-booth:focus-visible,
 .btn-booth-ghost:focus-visible,
-.strip-pill:focus-visible {
+.strip-pill:focus-visible,
+.booth-camera-picker:focus-visible {
   outline: 3px solid var(--b-mist);
   outline-offset: 3px;
 }
@@ -1177,6 +1178,45 @@ button.danger:hover:not(:disabled) {
   font-size: 12px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
+  color: var(--b-ink);
+}
+
+/* Native <select>, styled to match .btn-booth-ghost so it reads as one
+   family of pill controls, not a stray browser widget. `appearance: none`
+   is required to take over padding/font/focus at all — iOS Safari in
+   particular otherwise renders selects with system chrome no CSS reaches. */
+.booth-camera-picker {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 0;
+  font: inherit;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 12px 42px 12px 22px;
+  border-radius: 999px;
+  border: 2px solid rgba(247, 242, 234, 0.3);
+  background-color: transparent;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23f7f2ea' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 18px center;
+  box-shadow: none;
+  color: var(--b-ink);
+  max-width: 320px;
+  cursor: pointer;
+  transition: background 180ms ease, transform 180ms var(--ease-clay);
+}
+
+.booth-camera-picker:hover {
+  background-color: rgba(247, 242, 234, 0.1);
+  transform: translateY(-2px);
+}
+
+/* Options render via native OS chrome regardless of the select's own styling,
+   so this only reaches browsers (mostly desktop) that respect it. */
+.booth-camera-picker option {
+  background: var(--b-bg);
   color: var(--b-ink);
 }
 

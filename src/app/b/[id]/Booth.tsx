@@ -91,12 +91,26 @@ export default function Booth({
   const [repositionOffset, setRepositionOffset] = useState<Offset>(CENTERED)
   const dragRef = useRef<{ startX: number; startY: number; origin: Offset } | null>(null)
 
+  // Camera picker: populated from enumerateDevices(). Labels are blank until
+  // permission has been granted at least once — falls back to "Camera N".
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
+  const [deviceId, setDeviceId] = useState<string | undefined>(undefined)
+
+  const refreshDevices = useCallback(async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) return
+    const list = await navigator.mediaDevices.enumerateDevices()
+    setDevices(list.filter((d) => d.kind === 'videoinput'))
+  }, [])
+
   // Never leave a camera running after the booth unmounts.
   useEffect(() => {
+    refreshDevices()
+    navigator.mediaDevices?.addEventListener?.('devicechange', refreshDevices)
     return () => {
+      navigator.mediaDevices?.removeEventListener?.('devicechange', refreshDevices)
       streamRef.current?.getTracks().forEach((t) => t.stop())
     }
-  }, [])
+  }, [refreshDevices])
 
   /** Push the camera to its real hardware ceiling, not a guessed 4096. */
   const applyMaxResolution = useCallback(async (stream: MediaStream) => {
@@ -118,7 +132,8 @@ export default function Booth({
   }, [])
 
   /** The design asks for the camera only once the guest commits, not on page load. */
-  const ensureCamera = useCallback(async (): Promise<boolean> => {
+  const ensureCamera = useCallback(async (forDeviceId?: string): Promise<boolean> => {
+    const wantId = forDeviceId ?? deviceId
     if (streamRef.current) return true
     if (!navigator.mediaDevices?.getUserMedia) {
       setCameraError(
@@ -131,9 +146,10 @@ export default function Booth({
       // the request, it just steers the browser's mode pick. Landing on 16:9
       // natively also means toLandscape below has nothing left to crop, so no
       // sensor pixels are thrown away chasing the aspect ratio afterward.
+      // A specific deviceId and facingMode are mutually exclusive constraints.
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: 'user',
+          ...(wantId ? { deviceId: { exact: wantId } } : { facingMode: 'user' }),
           aspectRatio: { ideal: 16 / 9 },
           width: { ideal: 3840 },
           height: { ideal: 2160 },
@@ -150,6 +166,9 @@ export default function Booth({
         videoRef.current.srcObject = stream
         await videoRef.current.play().catch(() => {})
       }
+      // Labels are blank until permission is granted; now that it is, the
+      // picker can show real device names instead of "Camera N".
+      refreshDevices()
       return true
     } catch (err) {
       const errName = err instanceof DOMException ? err.name : ''
@@ -162,7 +181,20 @@ export default function Booth({
       )
       return false
     }
-  }, [applyMaxResolution])
+  }, [applyMaxResolution, deviceId, refreshDevices])
+
+  /** Switches to a different camera, restarting the stream if one is already running. */
+  const switchCamera = useCallback(
+    async (id: string) => {
+      setDeviceId(id)
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop())
+        streamRef.current = null
+        await ensureCamera(id)
+      }
+    },
+    [ensureCamera]
+  )
 
   /** Grab the current video frame, mirrored to match the preview the guest posed against. */
   const grabFrame = useCallback((): Photo | null => {
@@ -590,6 +622,9 @@ export default function Booth({
                 <CameraIcon size={24} />
                 Start my strip
               </button>
+              {devices.length > 1 && (
+                <CameraPicker devices={devices} value={deviceId} onChange={switchCamera} />
+              )}
             </div>
           </div>
           <div className="booth-strip-hero is-tilted">
@@ -605,6 +640,9 @@ export default function Booth({
               <span className="booth-dot" />
               {retakeIndex === null ? name : `redoing shot ${retakeIndex + 1} only`}
             </div>
+            {countdown === null && devices.length > 1 && (
+              <CameraPicker devices={devices} value={deviceId} onChange={switchCamera} />
+            )}
             <div className="booth-panel">
               <div className="booth-panel-label">your strip</div>
               <Strip {...stripProps} />
@@ -865,6 +903,32 @@ export default function Booth({
         <div key={flash} className="booth-flash" />
       )}
     </div>
+  )
+}
+
+/** Native `<select>` of available cameras — labels fall back to "Camera N" until permission is granted. */
+function CameraPicker({
+  devices,
+  value,
+  onChange,
+}: {
+  devices: MediaDeviceInfo[]
+  value?: string
+  onChange: (id: string) => void
+}) {
+  return (
+    <select
+      className="booth-camera-picker"
+      aria-label="Choose camera"
+      value={value ?? devices[0]?.deviceId ?? ''}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      {devices.map((d, i) => (
+        <option key={d.deviceId} value={d.deviceId}>
+          {d.label || `Camera ${i + 1}`}
+        </option>
+      ))}
+    </select>
   )
 }
 
